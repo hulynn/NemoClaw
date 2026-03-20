@@ -56,3 +56,46 @@ jobs:
 
       - name: Run sandbox E2E tests
         run: docker run --rm -v "${{ github.workspace }}/test:/opt/test" nemoclaw-sandbox-test /opt/test/e2e-test.sh
+
+  validate-profiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Validate blueprint and policy presets
+        run: |
+          python3 -c "
+          import yaml, os, sys
+
+          bp = yaml.safe_load(open('nemoclaw-blueprint/blueprint.yaml'))
+          profiles = bp['components']['inference']['profiles']
+          for p in ['default', 'ncp', 'nim-local', 'vllm']:
+              assert p in profiles, f'Missing profile: {p}'
+              cfg = profiles[p]
+              assert 'provider_type' in cfg and 'model' in cfg, f'Profile {p} missing provider_type or model'
+          print(f'Blueprint: {len(profiles)} profiles OK — {list(profiles.keys())}')
+
+          preset_dir = 'nemoclaw-blueprint/policies/presets'
+          count = 0
+          for f in sorted(os.listdir(preset_dir)):
+              if f.endswith('.yaml'):
+                  data = yaml.safe_load(open(os.path.join(preset_dir, f)))
+                  assert data and 'network_policies' in data, f'{f}: missing network_policies key'
+                  count += 1
+          print(f'Policy presets: {count} files OK')
+
+          policy = yaml.safe_load(open('nemoclaw-blueprint/policies/openclaw-sandbox.yaml'))
+          assert 'version' in policy, 'Base policy missing version'
+          assert 'network_policies' in policy, 'Base policy missing network_policies'
+          print('Base sandbox policy: OK')
+          "
